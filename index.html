@@ -1792,5 +1792,146 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') set(false); });
   })();
 </script>
+
+<style>
+/* Cart + checkout additions */
+.cart-fab{position:fixed;right:22px;bottom:22px;z-index:5000;background:var(--green-deep);color:var(--cream);border:1px solid var(--gold);padding:14px 18px;font:600 12px Manrope,sans-serif;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 8px 28px #0002;cursor:pointer}
+.cart-fab span{display:inline-flex;min-width:22px;height:22px;align-items:center;justify-content:center;margin-left:8px;border-radius:50%;background:var(--gold-soft);color:var(--ink)}
+.cart-add{display:block;width:100%;margin-top:16px;padding:13px 14px;border:1px solid var(--green-deep);background:var(--green-deep);color:var(--cream);font:600 11px Manrope,sans-serif;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.cart-add:hover{background:var(--green);border-color:var(--green)}
+.cart-add:disabled{opacity:.4;cursor:not-allowed}
+.cart-overlay{position:fixed;inset:0;z-index:6000;background:#111b;display:none;align-items:center;justify-content:center;padding:16px}
+.cart-overlay.open{display:flex}
+.cart-panel{width:min(620px,100%);max-height:92dvh;overflow:auto;background:var(--paper);color:var(--ink);padding:26px;border:1px solid var(--gold)}
+.cart-panel-head{display:flex;justify-content:space-between;gap:16px;align-items:center;border-bottom:1px solid var(--line-light);padding-bottom:16px;margin-bottom:18px}
+.cart-panel h2{font:500 30px Fraunces,serif}
+.cart-close{border:0;background:transparent;font-size:28px;cursor:pointer;color:var(--ink)}
+.cart-line{display:grid;grid-template-columns:1fr auto;gap:10px;padding:13px 0;border-bottom:1px solid var(--line-light);font-size:14px}
+.cart-line small{display:block;color:#666;margin-top:4px}
+.cart-line-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+.cart-line-actions button{background:transparent;border:1px solid var(--line-light);padding:4px 9px;cursor:pointer}
+.cart-line-actions .remove{color:#963a2d}
+.coupon-row{display:flex;gap:8px;margin:18px 0 6px}
+.coupon-row input,.checkout-fields input,.checkout-fields textarea{width:100%;min-width:0;padding:12px;border:1px solid var(--line-light);background:#fffaf0;color:var(--ink);font:14px Manrope,sans-serif;border-radius:0}
+.coupon-row button,.checkout-buy{background:var(--green-deep);color:var(--cream);border:0;padding:12px 16px;font:600 11px Manrope,sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+.coupon-status{min-height:20px;font-size:12px;margin:6px 0 12px;color:var(--green-deep)}
+.cart-totals{border-top:1px solid var(--line-light);margin-top:12px;padding-top:12px}
+.cart-total-row{display:flex;justify-content:space-between;gap:16px;margin:9px 0;font-size:14px}
+.cart-total-row.final{font-weight:700;font-size:18px;border-top:1px solid var(--line-light);padding-top:12px}
+.checkout-fields{display:grid;gap:10px;margin-top:20px}
+.checkout-fields label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.checkout-fields label input,.checkout-fields label textarea{display:block;margin-top:6px;text-transform:none;letter-spacing:normal}
+.checkout-buy{width:100%;padding:16px;margin-top:16px}
+.cart-empty{padding:24px 0;color:#666;font-size:14px}
+.cart-help{font-size:11px;line-height:1.5;color:#666;margin:12px 0 0}
+@media(max-width:560px){.cart-panel{padding:18px}.cart-fab{right:12px;bottom:12px}.coupon-row button{padding:10px}.cart-panel h2{font-size:26px}}
+</style>
+<button type="button" class="cart-fab" id="cartFab" aria-label="Open shopping cart">Cart <span id="cartCount">0</span></button>
+<div class="cart-overlay" id="cartOverlay" role="dialog" aria-modal="true" aria-labelledby="cartTitle">
+ <section class="cart-panel">
+  <div class="cart-panel-head"><h2 id="cartTitle">Your Cart</h2><button type="button" class="cart-close" id="cartClose" aria-label="Close cart">×</button></div>
+  <div id="cartItems"></div>
+  <div id="cartCheckoutArea" hidden>
+   <div class="coupon-row"><input id="couponInput" type="text" placeholder="Enter coupon code" aria-label="Coupon code" autocomplete="off"><button type="button" id="applyCoupon">Apply</button></div>
+   <p class="coupon-status" id="couponStatus" aria-live="polite"></p>
+   <div class="cart-totals" id="cartTotals"></div>
+   <form id="checkoutForm" class="checkout-fields">
+    <label>Full name *<input id="buyerName" required autocomplete="name" placeholder="Your name"></label>
+    <label>Phone number *<input id="buyerPhone" required type="tel" autocomplete="tel" placeholder="Your contact number"></label>
+    <label>Delivery address *<textarea id="buyerAddress" required autocomplete="street-address" rows="2" placeholder="House / street, city, PIN code"></textarea></label>
+    <label>Order notes (optional)<textarea id="buyerNotes" rows="2" placeholder="Any delivery instructions"></textarea></label>
+    <button type="submit" class="checkout-buy">Buy via WhatsApp</button>
+   </form>
+   <p class="cart-help">Your order details will open in WhatsApp addressed to New Vintage. Review the message and tap Send to place the order.</p>
+  </div>
+ </section>
+</div>
+<script>
+(function(){
+ const whatsappNumber='918217547568';
+ const cart=new Map();
+ let couponApplied=false;
+ const overlay=document.getElementById('cartOverlay');
+ const money=n=>'₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:2});
+ const getPrice=card=>{const el=card.querySelector('.price');return Number((el?.textContent||'').replace(/[^\d.]/g,''))||0};
+ const getName=card=>card.dataset.name||card.querySelector('.name')?.textContent.trim()||'Tie';
+ const fab=document.getElementById('cartFab'), count=document.getElementById('cartCount');
+ document.querySelectorAll('#stockGrid .card').forEach(card=>{
+   const sold=card.classList.contains('sold-out')||!!card.querySelector('.sold-out-note');
+   const btn=document.createElement('button');
+   btn.type='button';btn.className='cart-add';btn.textContent=sold?'Currently unavailable':'Add to Cart';btn.disabled=sold;
+   btn.addEventListener('click',()=>{
+     const name=getName(card),key=name;
+     const old=cart.get(key);
+     cart.set(key,{name,price:getPrice(card),qty:(old?.qty||0)+1});
+     couponApplied=false;document.getElementById('couponInput').value='';
+     document.getElementById('couponStatus').textContent='';
+     render();btn.textContent='Added — Add Another';setTimeout(()=>{if(btn.isConnected)btn.textContent='Add to Cart'},1100);
+   });
+   const info=card.querySelector('.info');if(info)info.appendChild(btn);
+ });
+ function discount(){
+   if(!couponApplied||!cart.size)return 0;
+   let cheapest=Infinity;
+   cart.forEach(item=>{if(item.qty>0)cheapest=Math.min(cheapest,item.price)});
+   return cheapest===Infinity?0:cheapest*.5;
+ }
+ function subtotal(){let n=0;cart.forEach(i=>n+=i.price*i.qty);return n}
+ function render(){
+   let qty=0;cart.forEach(i=>qty+=i.qty);count.textContent=qty;
+   const items=document.getElementById('cartItems'),area=document.getElementById('cartCheckoutArea');
+   if(!cart.size){items.innerHTML='<p class="cart-empty">Your cart is empty. Add a tie from the collection to begin.</p>';area.hidden=true;return}
+   area.hidden=false;
+   items.innerHTML='';
+   cart.forEach(item=>{
+     const line=document.createElement('div');line.className='cart-line';
+     const left=document.createElement('div');left.innerHTML='<strong></strong><small></small>';
+     left.querySelector('strong').textContent=item.name;left.querySelector('small').textContent=money(item.price)+' each';
+     const right=document.createElement('div');right.style.textAlign='right';right.innerHTML='<strong></strong><div class="cart-line-actions"><button type="button" aria-label="Decrease quantity">−</button><span></span><button type="button" aria-label="Increase quantity">+</button><button type="button" class="remove">Remove</button></div>';
+     right.querySelector('strong').textContent=money(item.price*item.qty);right.querySelector('.cart-line-actions span').textContent=item.qty;
+     const buttons=right.querySelectorAll('button');
+     buttons[0].onclick=()=>change(item.name,-1);buttons[1].onclick=()=>change(item.name,1);buttons[2].onclick=()=>{cart.delete(item.name);if(!cart.size)couponApplied=false;render()};
+     line.append(left,right);items.append(line);
+   });
+   const sub=subtotal(),off=discount(),total=Math.max(0,sub-off);
+   document.getElementById('cartTotals').innerHTML='<div class="cart-total-row"><span>Subtotal</span><span>'+money(sub)+'</span></div><div class="cart-total-row"><span>Coupon discount</span><span>−'+money(off)+'</span></div><div class="cart-total-row final"><span>Total</span><span>'+money(total)+'</span></div>';
+ }
+ function change(name,delta){const i=cart.get(name);if(!i)return;i.qty+=delta;if(i.qty<=0)cart.delete(name);if(!cart.size)couponApplied=false;render()}
+ function open(){overlay.classList.add('open');document.body.style.overflow='hidden'}
+ function close(){overlay.classList.remove('open');document.body.style.overflow=''}
+ fab.addEventListener('click',open);document.getElementById('cartClose').addEventListener('click',close);
+ overlay.addEventListener('click',e=>{if(e.target===overlay)close()});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+ document.getElementById('applyCoupon').addEventListener('click',()=>{
+   const code=document.getElementById('couponInput').value.trim().toUpperCase(),status=document.getElementById('couponStatus');
+   if(code==='TIE4GET1'&&cart.size){couponApplied=true;status.textContent='Coupon applied! 50% off '+money(Math.min(...Array.from(cart.values(),i=>i.price)))+' tie (one cheapest tie).';}
+   else if(code==='TIE4GET1'){couponApplied=false;status.textContent='Add a tie to your cart before applying this coupon.'}
+   else{couponApplied=false;status.textContent='Invalid coupon code. Please check and try again.'}
+   render();
+ });
+ document.getElementById('checkoutForm').addEventListener('submit',e=>{
+   e.preventDefault();if(!cart.size)return;
+   if(!e.currentTarget.reportValidity())return;
+   const name=document.getElementById('buyerName').value.trim();
+   const phone=document.getElementById('buyerPhone').value.trim();
+   const address=document.getElementById('buyerAddress').value.trim();
+   const notes=document.getElementById('buyerNotes').value.trim();
+   const lines=Array.from(cart.values()).map(i=>`• ${i.name} × ${i.qty} — ${money(i.price*i.qty)}`);
+   const sub=subtotal(),off=discount(),total=Math.max(0,sub-off);
+   const message=[
+    'NEW VINTAGE — NEW ORDER','',
+    'Customer: '+name,'Phone: '+phone,'Delivery address: '+address,
+    '', 'Items:',...lines,'','Subtotal: '+money(sub),
+    'Coupon: '+(couponApplied?'TIE4GET1':'None'),
+    'Discount: −'+money(off),'TOTAL: '+money(total),
+    notes?'Order notes: '+notes:'',
+    '', 'Please confirm availability, delivery charges and payment details.'
+   ].filter(Boolean).join('\n');
+   window.open('https://wa.me/'+whatsappNumber+'?text='+encodeURIComponent(message),'_blank','noopener');
+ });
+ render();
+})();
+</script>
+
 </body>
 </html>
